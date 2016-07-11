@@ -1,8 +1,34 @@
-import gpxpy 
+import gpxpy
 import gpxpy.gpx
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import movietime
+import os
 import tilestitcher
+
+# Helper class to cache some data so we don't have to redownload
+# every frame
+class GpxData():
+    def __init__(self, gpx):
+        slipyMap = tilestitcher.SlippyMapTiles(max_tiles=10)
+        (mapImage, imageInfo) = getMapImageAndImageInfoForGpx(slipyMap, gpx)
+        self.__init__(gpx, slipyMap, mapImage, imageInfo)
+
+    def __init__(self, gpx, slipyMap, mapImage, imageInfo):
+        self.gpx = gpx
+        self.slipyMap = slipyMap
+        self.mapImage = mapImage
+        self.imageInfo = imageInfo
+
+# Stupid 720p/1080p toggle
+if True:
+    # 720p
+    movieWidth = 1280
+    movieHeight = 720
+else:
+    # 1080p
+    movieWidth = 1920
+    movieHeight = 1080
 
 def gpxVisitor(gpx):
     """ Visit each point in the strava GPX file. """
@@ -22,25 +48,17 @@ def getSegment(gpx):
     assert len(track.segments) == 1
     return track.segments[0]
 
-def latitudeVisitor(gpx):
-    for point in gpxVisitor(gpx):
-        yield point.latitude
-
-def longitudeVisitor(gpx):
-    for point in gpxVisitor(gpx):
-        yield point.longitude
-
-def getMapImageAndImageInfoForGpx(slipy_map, gpx):
+def getMapImageAndImageInfoForGpx(slipyMap, gpx):
     minLat, maxLat, minLon, maxLon = gpx.get_bounds()
-    return slipy_map.get_image((minLat, maxLat), (minLon, maxLon), 1920, 1080)
+    return slipyMap.get_image((minLat, maxLat), (minLon, maxLon), movieWidth, movieHeight)
 
-def getImagePt(slipy_map, image_info, lat, lon):
-    return slipy_map._get_position_on_stitched_image(
-        image_info.tile_1, image_info.tile_2, lat, lon)
+def getImagePt(slipyMap, imageInfo, lat, lon):
+    return slipyMap._get_position_on_stitched_image(
+        imageInfo.tile_1, imageInfo.tile_2, lat, lon)
 
-def visualizeGpxOnMap(fig, slipy_map, gpx, mapImage, image_info):
+def visualizeGpxOnMap(fig, slipyMap, gpx, mapImage, imageInfo):
     """ Draw a gpx track on the given mapImage.  """
-    pts = [getImagePt(slipy_map, image_info, pt.latitude, pt.longitude)
+    pts = [getImagePt(slipyMap, imageInfo, pt.latitude, pt.longitude)
             for pt in gpxVisitor(gpx)]
 
     fig.clear()
@@ -55,24 +73,21 @@ def visualizeGpxOnMap(fig, slipy_map, gpx, mapImage, image_info):
     # TODO! HACK! Why does this require a shift??
     xPts = [p[0]-120  for p in pts]
     yPts = [p[1]-177 for p in pts]
-    plt.plot(xPts, yPts, color = 'deepskyblue', lw = 2.0, alpha = 0.8)
+    plt.plot(xPts, yPts, color = 'deepskyblue', lw = 10.0, alpha = 0.8)
 
     # Draw OSM image
     plt.imshow(mapImage, origin='upper', aspect='normal')
 
-    # Visualization
-    #plt.show()
-    #plt.savefig('plot.png', dpi = 80)
-
     return ax,
 
 def visualizeGpx(gpx):
-    slipy_map = tilestitcher.SlippyMapTiles(max_tiles=10)
-    (mapImage, imageInfo) = getMapImageAndImageInfoForGpx(slipy_map, gpx)
-    visualizeGpxOnMap(slipy_map, gpx, mapImage, imageInfo)
+    slipyMap = tilestitcher.SlippyMapTiles(max_tiles=10)
+    (mapImage, imageInfo) = getMapImageAndImageInfoForGpx(slipyMap, gpx)
+    visualizeGpxOnMap(slipyMap, gpx, mapImage, imageInfo)
 
-def getPointsFrom(gpxSegment, startPoint, numFrames):
+def getPointsFrom(gpxSegment, startFrame, numFrames):
     count = 0
+    startPoint = gpx.tracks[0].segments[0].points[startFrame]
     for pt in gpxSegment.walk(startPoint):
         if count == numFrames: return
         yield pt
@@ -83,26 +98,56 @@ def getPointsFrom(gpxSegment, startPoint, numFrames):
 
 def getPointsBetween(gpxSegment, startPoint, endPoint):
     for pt in gpxSegment.walk(startPoint):
-        if pt == endPoint: return
         yield pt
+        if pt == endPoint: return
 
     # If this is hit, endPoint is not a point after startPoint
-    assert False
+    raise Exception("endPoint not a part of this segment")
 
-def visualizeGpxAtTime(numFrames, fig, gpx, timeStart, slipy_map, mapImage, image_info):
-    print numFrames
-    segment = getSegment(gpx)
-    startPoint = segment.get_location_at(timeStart)
-    subGpx = [x for x in getPointsFrom(segment, startPoint, 1000+numFrames*100)]
-    return visualizeGpxOnMap(fig, slipy_map, subGpx, mapImage, image_info)
+def visualizeGpxAtTime(frame, fig, gpxData, startPoint, endPoint, numFrames):
+    print "Frame ", frame, "/", numFrames
+    numPoints = gpxData.gpx.get_points_no()
 
-def animateGpxAtTime(gpx, timeStart, timeEnd, slipy_map, mapImage, image_info):
-    fig = plt.figure(facecolor = '0.05')
-    line_ani = animation.FuncAnimation(fig, visualizeGpxAtTime, frames=100,
-        fargs=(fig, gpx, timeStart, slipy_map, mapImage, image_info),
-        interval=50, blit=False)
+    segment = getSegment(gpxData.gpx)
+    subGpx = [x for x in getPointsBetween(gpxData.gpx, startPoint, endPoint)]
+    return visualizeGpxOnMap(fig, gpxData.slipyMap, subGpx, gpxData.mapImage, gpxData.imageInfo)
 
-if __name__ is "main":
-    gpx_file = open('test.gpx', 'r') 
-    gpx = gpxpy.parse(gpx_file) 
-    visualizeGpx(gpx)
+def makeMovieForDuration(gpxData, creationTime, duration, outputFilename):
+    sizeX = movieWidth / 40
+    sizeY = movieHeight / 40
+    fig = plt.figure(figsize=(sizeX, sizeY), dpi=1) # @ dpi 40 = 1080p
+
+    startFrame = gpxData.gpx.get_location_at(creationTime)[0]
+    endFrame = gpxData.gpx.get_location_at(creationTime+duration)[0]
+    numFrames = 1 + duration.seconds/500
+    if startFrame == endFrame:
+        raise Exception("GPX and MOV times don't overlap")
+
+    lineAni = animation.FuncAnimation(fig, visualizeGpxAtTime, frames=numFrames,
+        fargs=(fig, gpxData, startFrame, endFrame, numFrames),
+        interval=25, blit=False)
+    lineAni.save(outputFilename, fps=5)
+
+
+def makeVisForEachMovie(gpxData, inputDir, outputDir):
+    for i in os.listdir(inputDir):
+        if i.endswith(".MOV"):
+            inputFn = os.path.join(inputDir, i)
+            outputFn = os.path.join(outputDir, os.path.splitext(i)[0]+'.mp4')
+            if os.path.exists(outputFn):
+                print "Skipping", inputFn
+                continue
+            ctAndD = movietime.getCreationTimeAndDuration(inputFn)
+
+            try:
+                makeMovieForDuration(gpxData, ctAndD[0], ctAndD[1], outputFn)
+                print "Generated", outputFn
+            except:
+                print "Failed for video", inputFn
+
+if __name__ == "__main__":
+    gpxFile = open('test.gpx', 'r')
+    gpx = gpxpy.parse(gpxFile)
+    animateGpx(gpx, 'test.mp4')
+    gpxData = GpxData(gpx)
+    test.makeVisForEachMovie(gpxData, 'vidDir', 'visDir')
