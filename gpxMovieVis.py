@@ -139,7 +139,7 @@ def makeMovieForDuration(gpxData, creationTime, duration, outputFilename):
     lineAni = animation.FuncAnimation(fig, visualizeGpxAtTime, frames=numFrames,
         fargs=(fig, gpxData, startPoint, duration, numFrames),
         interval=25, blit=False)
-    lineAni.save(outputFilename, fps=25)
+    lineAni.save(outputFilename, fps=5)
 
 def makeVisForEachMovie(gpxData, inputDir, outputDir):
     for i in os.listdir(inputDir):
@@ -151,7 +151,6 @@ def makeVisForEachMovie(gpxData, inputDir, outputDir):
                 continue
             ctAndD = movietime.getCreationTimeAndDuration(inputFn)
 
-            makeMovieForDuration(gpxData, ctAndD[0], ctAndD[1], outputFn)
             try:
                 makeMovieForDuration(gpxData, ctAndD[0], ctAndD[1], outputFn)
                 print "Generated", outputFn

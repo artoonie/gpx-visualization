@@ -80,4 +80,7 @@ def getCreationTimeAndDuration(filename):
     assert creation
     assert duration
 
+    timezoneCorrection = datetime.timedelta(minutes=90)
+    creation = creation - timezoneCorrection
+
     return creation, duration
