@@ -10,8 +10,8 @@ This is an in-progress prototype so there is no clean interface yet. Just dig in
 
 ## Example: GPX visualizations
 Combining all of the output visualizations into a single video. Each jump in the tracks is the start of another clip I took while on the bike ride.
-![Aggregating the GPX visualizations into a single video](examles/gpx.gif)
+![Aggregating the GPX visualizations into a single video](examples/gpx.gif)
 
 ## Example: Compositing GPX and clips
 A simple example of what you could do with the output. Here, I overlayed three clips with their corresponding GPX tracks.
-![Overlaying the visualization](examles/overlay.gif)
+![Overlaying the visualization](examples/overlay.gif)
